@@ -70,6 +70,85 @@ Format presets: `premier_league`, `players_championship`, `world_matchplay_r1`,
 `uk_open_final`, `world_championship_r1`, `world_championship_semi`,
 `world_championship_final`, or `bestofN` (e.g. `bestof11`).
 
+## Running it as a service (for a frontend)
+
+The engine is Python, so a frontend talks to it over HTTP. DartsMod ships a
+FastAPI service that exposes the engine as a JSON API with an auto-generated
+OpenAPI schema.
+
+```bash
+pip install -e ".[api]"
+uvicorn dartsmod.api:api --reload --port 8000
+```
+
+- Interactive docs: **http://localhost:8000/docs**
+- Machine-readable schema (import this into a frontend/tool builder): **http://localhost:8000/openapi.json**
+
+### Endpoints
+
+| Method & path   | Purpose                                                   |
+|-----------------|-----------------------------------------------------------|
+| `GET /health`   | Liveness check                                            |
+| `GET /formats`  | List format presets (+ dynamic `bestofN` / `firsttoN`)    |
+| `POST /simulate`| Run a simulation, return win probs, scorelines, props     |
+
+Example call:
+
+```bash
+curl -X POST localhost:8000/simulate -H 'content-type: application/json' -d '{
+  "player_1": {"name": "Luke Humphries", "scoring_average": 102.5, "double_prob": 0.42},
+  "player_2": {"name": "Michael van Gerwen", "scoring_average": 99.8, "double_prob": 0.40},
+  "format": "world_championship_final",
+  "sims": 20000,
+  "seed": 1,
+  "over_under_line": 30.5
+}'
+```
+
+Response (abridged):
+
+```json
+{
+  "win_prob": {"player_1": 0.72, "player_2": 0.28},
+  "fair_odds": {"player_1": 1.39, "player_2": 3.54},
+  "scorelines": [{"score": "7-4", "prob": 0.15}, ...],
+  "expected_total_legs": 45.2,
+  "over_under": {"line": 30.5, "over": 0.98, "under": 0.02},
+  "averages": {"player_1": 94.7, "player_2": 93.1},
+  "one_eighties": {"player_1": 14.5, "player_2": 13.0},
+  "doubles_pct": {"player_1": 41.4, "player_2": 39.3}
+}
+```
+
+`POST /simulate` also accepts a custom format (`legs_to_win_set` + `sets_to_win`)
+and an in-play `state` object (current sets/legs and the live leg's scores + whose
+throw) for real-time prediction.
+
+### Exposing it to an AI Studio frontend
+
+An external frontend needs a reachable URL. CORS is enabled on all origins by
+default (lock it down to your frontend's domain for production).
+
+1. **Local testing** – run uvicorn as above, then tunnel a public HTTPS URL:
+   ```bash
+   npx cloudflared tunnel --url http://localhost:8000   # or: ngrok http 8000
+   ```
+2. **Deploy** – a `Dockerfile` is included and honours a platform `$PORT`, so it
+   drops straight onto Render / Railway / Fly.io / Google Cloud Run:
+   ```bash
+   docker build -t dartsmod . && docker run -p 8000:8000 dartsmod
+   ```
+3. **Wire up the frontend** – point AI Studio at the deployed base URL. Either:
+   - **Import the OpenAPI schema** (`/openapi.json`) as a tool/connector/function
+     — most AI Studio and app-builder platforms turn that into a callable action
+     automatically; or
+   - Have the frontend **`POST /simulate`** directly and render the JSON
+     (`win_prob`, `scorelines`, `over_under`, `averages`, ...).
+
+That's the whole integration: your AI Studio UI collects the two players' stats +
+format, calls `POST /simulate`, and displays the returned probabilities and
+markets. The Python engine stays the single source of truth.
+
 ## Player inputs
 
 A player is described by interpretable, scrapeable statistics:
@@ -131,6 +210,7 @@ print("Comeback probability:", result.p1_win_prob)
 | `dartsmod/match.py`      | Full-match simulation, throw alternation, live resume   |
 | `dartsmod/simulation.py` | Monte Carlo driver and market aggregation               |
 | `dartsmod/adjustments.py`| Form (EMA), stage/floor and fatigue coefficients        |
+| `dartsmod/api.py`        | FastAPI HTTP/JSON service (for frontends)                |
 | `dartsmod/cli.py`        | Command-line interface                                   |
 
 ## Tests

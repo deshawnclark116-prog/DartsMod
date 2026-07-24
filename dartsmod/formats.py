@@ -78,3 +78,18 @@ PRESETS = {
     "world_championship_semi": WORLD_CHAMPIONSHIP_SEMI,
     "world_championship_final": WORLD_CHAMPIONSHIP_FINAL,
 }
+
+
+def resolve_format(name: str) -> Format:
+    """Resolve a format from a preset name, ``bestofN`` or ``firsttoN``.
+
+    Raises ``KeyError`` if the name is not recognised.
+    """
+    key = name.strip().lower().replace(" ", "_").replace("-", "_")
+    if key in PRESETS:
+        return PRESETS[key]
+    if key.startswith("bestof"):
+        return best_of_legs(int(key[len("bestof"):]))
+    if key.startswith("firstto"):
+        return first_to_legs(int(key[len("firstto"):]))
+    raise KeyError(name)
