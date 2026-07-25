@@ -1,0 +1,42 @@
+{
+  "name": "simulate_darts_match",
+  "description": "Simulate a professional darts match with a visit-level Monte Carlo engine and return win probabilities, fair odds, likely scorelines and expected total legs. Use this whenever the user asks who would win a darts match, for match odds, a scoreline, or an over/under on legs.",
+  "parameters": {
+    "type": "OBJECT",
+    "properties": {
+      "player_1_name": {
+        "type": "STRING",
+        "description": "Name of the first player."
+      },
+      "player_2_name": {
+        "type": "STRING",
+        "description": "Name of the second player."
+      },
+      "player_1_scoring_average": {
+        "type": "NUMBER",
+        "description": "Player 1's three-dart scoring (First-9) average, typically 90-108. Defaults to 98 if unknown."
+      },
+      "player_2_scoring_average": {
+        "type": "NUMBER",
+        "description": "Player 2's three-dart scoring (First-9) average, typically 90-108. Defaults to 98 if unknown."
+      },
+      "player_1_double_prob": {
+        "type": "NUMBER",
+        "description": "Player 1's per-dart double (checkout) probability, 0-1, typically 0.35-0.45. Defaults to 0.40 if unknown."
+      },
+      "player_2_double_prob": {
+        "type": "NUMBER",
+        "description": "Player 2's per-dart double (checkout) probability, 0-1, typically 0.35-0.45. Defaults to 0.40 if unknown."
+      },
+      "match_format": {
+        "type": "STRING",
+        "description": "Match format. One of the presets: premier_league, players_championship, world_matchplay_r1, uk_open_final, world_championship_r1, world_championship_semi, world_championship_final; or a dynamic value like bestof11 or firstto6."
+      },
+      "sims": {
+        "type": "INTEGER",
+        "description": "Number of Monte Carlo simulations to run. Defaults to 10000. Higher is more precise but slower."
+      }
+    },
+    "required": ["player_1_name", "player_2_name"]
+  }
+}
