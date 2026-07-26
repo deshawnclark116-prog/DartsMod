@@ -23,5 +23,8 @@ dartsmod = "dartsmod.cli:main"
 [tool.setuptools.packages.find]
 include = ["dartsmod*"]
 
+[tool.setuptools.package-data]
+dartsmod = ["static/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

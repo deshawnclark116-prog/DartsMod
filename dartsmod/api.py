@@ -15,11 +15,13 @@ http://localhost:8000/openapi.json into your frontend/tool builder.
 
 from __future__ import annotations
 
+import pathlib
 from typing import Dict, List, Optional
 
 try:
     from fastapi import FastAPI, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import HTMLResponse
     from pydantic import BaseModel, Field
 except ImportError as exc:  # pragma: no cover - import guard
     raise ImportError(
@@ -152,6 +154,15 @@ class PlayerOut(BaseModel):
     scoring_average: float
     three_dart_average: float
     checkout_percentage: float
+
+
+_INDEX_HTML = (pathlib.Path(__file__).parent / "static" / "index.html")
+
+
+@api.get("/", response_class=HTMLResponse)
+def index() -> str:
+    """Serve the built-in web UI from the same origin as the API."""
+    return _INDEX_HTML.read_text(encoding="utf-8")
 
 
 @api.get("/health")

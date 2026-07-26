@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DartsMod — Match Predictor</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #131a22;
+    --panel-2: #1a232e;
+    --line: #26323f;
+    --text: #e8eef4;
+    --muted: #8ea0b2;
+    --p1: #ff4d4d;
+    --p2: #ffb020;
+    --accent: #00d977;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 20px 16px 60px; }
+  header { display: flex; align-items: center; gap: 14px; margin: 8px 0 22px; }
+  .badge {
+    width: 54px; height: 54px; border-radius: 50%; background: var(--p1);
+    display: grid; place-items: center; font-weight: 800; font-size: 20px;
+    color: #fff; box-shadow: 0 0 24px rgba(255,77,77,.35);
+  }
+  header h1 { font-size: 26px; margin: 0; letter-spacing: .5px; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
+  label { display: block; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  select, input {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    padding: 13px 12px; border-radius: 12px; font-size: 16px; appearance: none;
+  }
+  select:focus, input:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; min-width: 0; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+  .field { margin-bottom: 14px; }
+  button.predict {
+    width: 100%; border: none; border-radius: 14px; padding: 17px; margin-top: 4px;
+    background: var(--p1); color: #fff; font-size: 18px; font-weight: 800; letter-spacing: 1px;
+    cursor: pointer; box-shadow: 0 8px 24px rgba(255,77,77,.3);
+  }
+  button.predict:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+  .status { text-align: center; color: var(--muted); padding: 18px; font-size: 14px; }
+  .spinner { width: 26px; height: 26px; border: 3px solid var(--line); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .err { color: var(--p1); }
+  .hidden { display: none; }
+
+  .vs { text-align: center; color: var(--muted); font-weight: 700; margin: 6px 0; }
+  .winbar { margin: 6px 0 2px; }
+  .winbar .names { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 6px; }
+  .winbar .track { display: flex; height: 40px; border-radius: 10px; overflow: hidden; background: var(--panel-2); }
+  .winbar .seg1 { background: var(--p1); }
+  .winbar .seg2 { background: var(--p2); }
+  .winbar .seg { display: grid; place-items: center; color: #101010; font-weight: 800; font-size: 15px; transition: width .5s ease; }
+  .odds { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; margin-top: 6px; }
+  h3 { font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin: 20px 0 10px; }
+  .scoreline { margin-bottom: 8px; }
+  .scoreline .lab { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 3px; }
+  .scoreline .bar { height: 8px; background: var(--panel-2); border-radius: 6px; overflow: hidden; }
+  .scoreline .fill { height: 100%; background: var(--accent); }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .stat .v { font-size: 22px; font-weight: 800; margin-top: 4px; }
+  .stat .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="badge">180</div>
+    <div><h1>DartsMod</h1><p>Match Predictor</p></div>
+  </header>
+
+  <div id="loadStatus" class="card status">
+    <div class="spinner"></div>
+    <div id="loadMsg">Loading players… (first load can take up to a minute while the server wakes up)</div>
+  </div>
+
+  <div id="controls" class="card hidden">
+    <div class="field">
+      <label><span class="dot" style="background:var(--p1)"></span>Player 1</label>
+      <select id="p1"></select>
+    </div>
+    <div class="vs">vs</div>
+    <div class="field">
+      <label><span class="dot" style="background:var(--p2)"></span>Player 2</label>
+      <select id="p2"></select>
+    </div>
+    <div class="field">
+      <label>Format</label>
+      <select id="format">
+        <option value="premier_league">Premier League</option>
+        <option value="players_championship">Players Championship</option>
+        <option value="world_matchplay_r1">World Matchplay R1</option>
+        <option value="uk_open_final">UK Open Final</option>
+        <option value="world_championship_r1">World Championship R1</option>
+        <option value="world_championship_semi">World Championship Semi</option>
+        <option value="world_championship_final" selected>World Championship Final</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Simulations</label>
+        <input id="sims" type="number" value="10000" min="1000" max="200000" step="1000" />
+      </div>
+      <div class="field">
+        <label>Over / Under legs</label>
+        <input id="ouLine" type="number" value="10.5" step="0.5" />
+      </div>
+    </div>
+    <button id="predictBtn" class="predict">PREDICT</button>
+  </div>
+
+  <div id="predictStatus" class="card status hidden">
+    <div class="spinner"></div>
+    <div id="predictMsg">Simulating…</div>
+  </div>
+
+  <div id="results" class="hidden"></div>
+
+  <footer>Powered by dartsmod.onrender.com · stats via DartsOrakel · dark oche edition</footer>
+</div>
+
+<script>
+const API = ""; // same origin
+let players = [];
+
+function fmtPct(x) { return (x * 100).toFixed(1) + "%"; }
+
+async function fetchWithRetry(url, options, attempts = 4, timeoutMs = 90000) {
+  let lastErr;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+      const res = await fetch(url, { ...options, signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts) await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+  throw lastErr;
+}
+
+function option(p) {
+  const o = document.createElement("option");
+  o.value = p.key;
+  o.textContent = `${p.name} (${p.country}) · ${p.three_dart_average} avg`;
+  return o;
+}
+
+async function loadPlayers() {
+  const loadStatus = document.getElementById("loadStatus");
+  const controls = document.getElementById("controls");
+  try {
+    players = await fetchWithRetry(API + "/players", { method: "GET" });
+    const p1 = document.getElementById("p1"), p2 = document.getElementById("p2");
+    players.forEach(p => p1.appendChild(option(p)));  // each select needs its own option nodes
+    players.forEach(p => p2.appendChild(option(p)));
+    if (players[0]) p1.value = players[0].key;
+    if (players[1]) p2.value = players[1].key;
+    loadStatus.classList.add("hidden");
+    controls.classList.remove("hidden");
+  } catch (e) {
+    document.getElementById("loadMsg").innerHTML =
+      `<div class="err">Couldn't load players: ${e.message}</div>
+       <div style="margin-top:10px"><button class="predict" onclick="location.reload()">RETRY</button></div>`;
+    document.querySelector("#loadStatus .spinner").classList.add("hidden");
+  }
+}
+
+function playerByKey(key) { return players.find(p => String(p.key) === String(key)); }
+
+async function predict() {
+  const p1 = playerByKey(document.getElementById("p1").value);
+  const p2 = playerByKey(document.getElementById("p2").value);
+  const controls = document.getElementById("controls");
+  const status = document.getElementById("predictStatus");
+  const results = document.getElementById("results");
+
+  if (!p1 || !p2) return;
+  if (p1.key === p2.key) { alert("Pick two different players."); return; }
+
+  results.classList.add("hidden");
+  status.classList.remove("hidden");
+  document.getElementById("predictBtn").disabled = true;
+
+  const body = {
+    player_1: { name: p1.name, scoring_average: p1.scoring_average, checkout_percentage: p1.checkout_percentage },
+    player_2: { name: p2.name, scoring_average: p2.scoring_average, checkout_percentage: p2.checkout_percentage },
+    format: document.getElementById("format").value,
+    sims: parseInt(document.getElementById("sims").value) || 10000,
+    over_under_line: parseFloat(document.getElementById("ouLine").value) || 10.5,
+  };
+
+  try {
+    const r = await fetchWithRetry(API + "/simulate", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    renderResults(r);
+  } catch (e) {
+    results.innerHTML = `<div class="card status"><div class="err">Prediction failed: ${e.message}</div></div>`;
+    results.classList.remove("hidden");
+  } finally {
+    status.classList.add("hidden");
+    document.getElementById("predictBtn").disabled = false;
+  }
+}
+
+function renderResults(r) {
+  const w1 = r.win_prob.player_1, w2 = r.win_prob.player_2;
+  const scorelines = r.scorelines.slice(0, 5);
+  const maxSl = Math.max(...scorelines.map(s => s.prob), 0.0001);
+  const ou = r.over_under;
+
+  const slHtml = scorelines.map(s => `
+    <div class="scoreline">
+      <div class="lab"><span>${s.score}</span><span>${fmtPct(s.prob)}</span></div>
+      <div class="bar"><div class="fill" style="width:${(s.prob / maxSl * 100).toFixed(1)}%"></div></div>
+    </div>`).join("");
+
+  document.getElementById("results").innerHTML = `
+    <div class="card">
+      <div style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:12px">${r.format}</div>
+      <div class="winbar">
+        <div class="names"><span>${r.player_1}</span><span>${r.player_2}</span></div>
+        <div class="track">
+          <div class="seg seg1" style="width:${w1 * 100}%">${fmtPct(w1)}</div>
+          <div class="seg seg2" style="width:${w2 * 100}%">${fmtPct(w2)}</div>
+        </div>
+        <div class="odds"><span>Fair odds ${r.fair_odds.player_1.toFixed(2)}</span><span>Fair odds ${r.fair_odds.player_2.toFixed(2)}</span></div>
+      </div>
+      <h3>Most likely scorelines</h3>
+      ${slHtml}
+      <h3>Markets & form</h3>
+      <div class="grid">
+        <div class="stat"><div class="k">Expected legs</div><div class="v">${r.expected_total_legs.toFixed(1)}</div></div>
+        <div class="stat"><div class="k">O/U ${ou ? ou.line : ""}</div><div class="v">${ou ? fmtPct(ou.over) : "-"}</div><div class="sub">${ou ? "under " + fmtPct(ou.under) : ""}</div></div>
+        <div class="stat"><div class="k">${r.player_1} avg</div><div class="v">${r.averages.player_1.toFixed(1)}</div><div class="sub">${r.one_eighties.player_1.toFixed(1)} 180s · ${r.doubles_pct.player_1.toFixed(0)}% dbls</div></div>
+        <div class="stat"><div class="k">${r.player_2} avg</div><div class="v">${r.averages.player_2.toFixed(1)}</div><div class="sub">${r.one_eighties.player_2.toFixed(1)} 180s · ${r.doubles_pct.player_2.toFixed(0)}% dbls</div></div>
+      </div>
+    </div>`;
+  document.getElementById("results").classList.remove("hidden");
+}
+
+document.getElementById("predictBtn").addEventListener("click", predict);
+loadPlayers();
+</script>
+</body>
+</html>
