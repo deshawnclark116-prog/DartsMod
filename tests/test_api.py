@@ -35,6 +35,32 @@ def test_players_endpoint(monkeypatch):
     assert body[0]["checkout_percentage"] == 43.0
 
 
+def test_fixtures_endpoint(monkeypatch):
+    import dartsmod.api as api_mod
+    roster = [{"key": 34, "name": "Luke Humphries", "country": "ENG",
+               "scoring_average": 109.3, "three_dart_average": 99.7, "checkout_percentage": 41.1}]
+    matches = [{"event": "World Matchplay", "round": "Final", "date": "2026-07-26T19:00:00Z",
+                "p1_key": 34, "p1_name": "Luke Humphries",
+                "p2_key": 9999, "p2_name": "Qualifier X"}]
+    monkeypatch.setattr(api_mod, "get_players", lambda: roster)
+    monkeypatch.setattr(api_mod, "get_upcoming_matches", lambda: matches)
+    resp = client.get("/fixtures")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body[0]["player_1"]["known"] is True   # in roster -> real stats
+    assert body[0]["player_1"]["scoring_average"] == 109.3
+    assert body[0]["player_2"]["known"] is False  # unknown -> defaults
+    assert body[0]["event"] == "World Matchplay"
+
+
+def test_fixtures_empty(monkeypatch):
+    import dartsmod.api as api_mod
+    monkeypatch.setattr(api_mod, "get_upcoming_matches", lambda: [])
+    resp = client.get("/fixtures")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
 def test_simulate_basic():
     resp = client.post("/simulate", json={
         "player_1": {"name": "A", "scoring_average": 104, "double_prob": 0.44},

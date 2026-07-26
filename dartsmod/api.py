@@ -28,7 +28,7 @@ except ImportError as exc:  # pragma: no cover - import guard
         "The API requires FastAPI and Uvicorn. Install with: pip install -e '.[api]'"
     ) from exc
 
-from .data import find_players, get_players
+from .data import find_players, get_players, get_upcoming_matches
 from .formats import PRESETS, Format, resolve_format
 from .match import LiveState
 from .player import DartsPlayer
@@ -182,6 +182,50 @@ def players(response: Response, q: str = "", limit: int = 200) -> List[dict]:
     """
     response.headers.update(_NO_CACHE)
     return find_players(query=q, limit=limit)
+
+
+class FixturePlayer(BaseModel):
+    key: int
+    name: str
+    scoring_average: float
+    checkout_percentage: float
+    known: bool  # True if we have real stats; False = using defaults
+
+
+class FixtureOut(BaseModel):
+    event: str
+    round: str
+    date: str
+    player_1: FixturePlayer
+    player_2: FixturePlayer
+
+
+@api.get("/fixtures", response_model=List[FixtureOut])
+def fixtures(response: Response) -> List[dict]:
+    """Upcoming professional matches, auto-discovered, with stats attached.
+
+    Each match's players are joined to the live roster by key, so the frontend can
+    predict a fixture in one tap. Empty when no matches are currently scheduled.
+    """
+    response.headers.update(_NO_CACHE)
+    roster = {p["key"]: p for p in get_players()}
+
+    def to_player(key: int, name: str) -> dict:
+        r = roster.get(key)
+        if r:
+            return {"key": key, "name": r["name"], "scoring_average": r["scoring_average"],
+                    "checkout_percentage": r["checkout_percentage"], "known": True}
+        return {"key": key, "name": name or "Unknown", "scoring_average": 95.0,
+                "checkout_percentage": 38.0, "known": False}
+
+    return [
+        {
+            "event": m["event"], "round": m["round"], "date": m["date"],
+            "player_1": to_player(m["p1_key"], m["p1_name"]),
+            "player_2": to_player(m["p2_key"], m["p2_name"]),
+        }
+        for m in get_upcoming_matches()
+    ]
 
 
 @api.get("/formats")

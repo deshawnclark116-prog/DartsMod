@@ -113,6 +113,33 @@ def test_null_and_malformed_values_do_not_break(monkeypatch):
     assert any(p["country"] == "" for p in players)  # null country coerced
 
 
+def test_upcoming_matches_parsing(monkeypatch):
+    rows = [
+        {"event_title": "World Matchplay", "round_name": "Quarter Final",
+         "match_date": "2026-07-26T19:00:00Z",
+         "first_player_key": 34, "first_player_name": "Luke Humphries",
+         "second_player_key": 5403, "second_player_name": "Luke Littler"},
+        {"first_player_key": None, "second_player_key": 2},  # incomplete -> skipped
+    ]
+    monkeypatch.setattr(data, "_fetch_upcoming", lambda: rows)
+    data._upcoming_cache["matches"] = None
+    data._upcoming_cache["ts"] = 0.0
+
+    matches = data.get_upcoming_matches(force_refresh=True)
+    assert len(matches) == 1
+    m = matches[0]
+    assert m["p1_key"] == 34 and m["p2_key"] == 5403
+    assert m["event"] == "World Matchplay"
+    assert m["round"] == "Quarter Final"
+
+
+def test_upcoming_matches_fallback_on_error(monkeypatch):
+    data._upcoming_cache["matches"] = None
+    data._upcoming_cache["ts"] = 0.0
+    monkeypatch.setattr(data, "_fetch_upcoming", lambda: (_ for _ in ()).throw(RuntimeError("down")))
+    assert data.get_upcoming_matches(force_refresh=True) == []
+
+
 def test_coerce_float():
     assert data._coerce_float("42.5", 0.0) == 42.5
     assert data._coerce_float(None, 9.0) == 9.0

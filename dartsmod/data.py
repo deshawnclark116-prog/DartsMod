@@ -233,3 +233,61 @@ def find_players(query: str = "", limit: int = 50) -> List[dict]:
         needle = query.lower()
         players = [p for p in players if needle in p["name"].lower()]
     return players[:limit]
+
+
+# --- Upcoming fixtures -------------------------------------------------------
+
+_UPCOMING_URL = "https://dartsorakel.com/api/match/upcoming-matches-datatable"
+_UPCOMING_TTL_SECONDS = 3600
+_upcoming_cache: Dict[str, object] = {"matches": None, "ts": 0.0}
+
+
+def _fetch_upcoming() -> list:
+    """Fetch the raw upcoming-matches rows from DartsOrakel (with retries)."""
+    params = urllib.parse.urlencode({"draw": 1, "start": 0, "length": 200})
+    url = f"{_UPCOMING_URL}?{params}"
+    last_err: Optional[Exception] = None
+    for _ in range(3):
+        try:
+            request = urllib.request.Request(url, headers=_HEADERS)
+            with urllib.request.urlopen(request, timeout=25) as response:
+                return json.loads(response.read().decode("utf-8")).get("data", [])
+        except Exception as err:  # noqa: BLE001
+            last_err = err
+            time.sleep(1.5)
+    raise last_err  # type: ignore[misc]
+
+
+def get_upcoming_matches(force_refresh: bool = False) -> List[dict]:
+    """Return upcoming pro matches (both players, event, round, date).
+
+    Cached for an hour; never raises (serves cache, then an empty list). Player
+    keys are DartsOrakel keys, so they join directly onto :func:`get_players`.
+    """
+    now = time.time()
+    cached = _upcoming_cache.get("matches")
+    if not force_refresh and cached is not None and (now - float(_upcoming_cache["ts"])) < _UPCOMING_TTL_SECONDS:
+        return cached  # type: ignore[return-value]
+
+    try:
+        matches: List[dict] = []
+        for row in _fetch_upcoming():
+            p1k, p2k = row.get("first_player_key"), row.get("second_player_key")
+            if p1k is None or p2k is None:
+                continue
+            matches.append({
+                "event": str(row.get("event_title") or row.get("event_name") or "").strip(),
+                "round": str(row.get("round_name") or "").strip(),
+                "date": str(row.get("match_date") or ""),
+                "p1_key": int(p1k),
+                "p1_name": str(row.get("first_player_name") or "").strip(),
+                "p2_key": int(p2k),
+                "p2_name": str(row.get("second_player_name") or "").strip(),
+            })
+        _upcoming_cache["matches"] = matches
+        _upcoming_cache["ts"] = now
+        return matches
+    except Exception:
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+        return []

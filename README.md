@@ -90,6 +90,7 @@ uvicorn dartsmod.api:api --reload --port 8000
 |-----------------|-----------------------------------------------------------|
 | `GET /health`   | Liveness check                                            |
 | `GET /players`  | Current pro players with auto-fetched stats (search `?q=`) |
+| `GET /fixtures` | Auto-discovered upcoming matches with stats attached      |
 | `GET /formats`  | List format presets (+ dynamic `bestofN` / `firsttoN`)    |
 | `POST /simulate`| Run a simulation, return win probs, scorelines, props     |
 

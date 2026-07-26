@@ -75,6 +75,13 @@
   .stat .v { font-size: 22px; font-weight: 800; margin-top: 4px; }
   .stat .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
   footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
+
+  .fixture { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 10px; background: var(--panel-2); }
+  .fixture .fx-meta { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .fixture .fx-players { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
+  .fixture .fx-players .vsx { color: var(--muted); font-weight: 400; margin: 0 6px; }
+  .fx-btn { width: 100%; border: none; border-radius: 10px; padding: 11px; background: var(--accent); color: #06251a; font-weight: 800; font-size: 14px; cursor: pointer; }
+  .divider { text-align: center; color: var(--muted); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; margin: 4px 0 14px; }
 </style>
 </head>
 <body>
@@ -88,6 +95,13 @@
     <div class="spinner"></div>
     <div id="loadMsg">Loading players… (first load can take up to a minute while the server wakes up)</div>
   </div>
+
+  <div id="fixturesCard" class="card hidden">
+    <h3 style="margin-top:0">Upcoming Matches</h3>
+    <div id="fixturesList"></div>
+  </div>
+
+  <div id="buildDivider" class="divider hidden">— or build your own —</div>
 
   <div id="controls" class="card hidden">
     <div class="field">
@@ -177,6 +191,7 @@ async function loadPlayers() {
     if (players[1]) p2.value = players[1].key;
     loadStatus.classList.add("hidden");
     controls.classList.remove("hidden");
+    loadFixtures();
   } catch (e) {
     document.getElementById("loadMsg").innerHTML =
       `<div class="err">Couldn't load players: ${e.message}</div>
@@ -187,15 +202,44 @@ async function loadPlayers() {
 
 function playerByKey(key) { return players.find(p => String(p.key) === String(key)); }
 
-async function predict() {
-  const p1 = playerByKey(document.getElementById("p1").value);
-  const p2 = playerByKey(document.getElementById("p2").value);
-  const controls = document.getElementById("controls");
+let fixtures = [];
+
+async function loadFixtures() {
+  const card = document.getElementById("fixturesCard");
+  const list = document.getElementById("fixturesList");
+  const divider = document.getElementById("buildDivider");
+  try {
+    fixtures = await fetchWithRetry(API + "/fixtures?_=" + Date.now(), { method: "GET" }, 3, 90000);
+    if (!fixtures.length) {
+      list.innerHTML = `<div style="color:var(--muted);font-size:14px">No upcoming matches published right now — build your own below.</div>`;
+    } else {
+      list.innerHTML = fixtures.map((m, i) => {
+        const meta = [m.event, m.round, m.date ? new Date(m.date).toLocaleString() : ""].filter(Boolean).join(" · ");
+        return `<div class="fixture">
+          <div class="fx-meta">${meta}</div>
+          <div class="fx-players">${m.player_1.name}<span class="vsx">vs</span>${m.player_2.name}</div>
+          <button class="fx-btn" data-i="${i}">Predict this match</button>
+        </div>`;
+      }).join("");
+      list.querySelectorAll(".fx-btn").forEach(b =>
+        b.addEventListener("click", () => {
+          const m = fixtures[b.dataset.i];
+          runSim(m.player_1, m.player_2);
+        }));
+    }
+    card.classList.remove("hidden");
+    divider.classList.remove("hidden");
+  } catch (e) {
+    // Fixtures are optional; if they fail, the manual picker still works.
+    divider.classList.remove("hidden");
+  }
+}
+
+async function runSim(p1, p2) {
   const status = document.getElementById("predictStatus");
   const results = document.getElementById("results");
-
   if (!p1 || !p2) return;
-  if (p1.key === p2.key) { alert("Pick two different players."); return; }
+  if (p1.key !== undefined && p1.key === p2.key) { alert("Pick two different players."); return; }
 
   results.classList.add("hidden");
   status.classList.remove("hidden");
@@ -214,6 +258,7 @@ async function predict() {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     renderResults(r);
+    document.getElementById("results").scrollIntoView({ behavior: "smooth" });
   } catch (e) {
     results.innerHTML = `<div class="card status"><div class="err">Prediction failed: ${e.message}</div></div>`;
     results.classList.remove("hidden");
@@ -221,6 +266,11 @@ async function predict() {
     status.classList.add("hidden");
     document.getElementById("predictBtn").disabled = false;
   }
+}
+
+function predict() {
+  runSim(playerByKey(document.getElementById("p1").value),
+         playerByKey(document.getElementById("p2").value));
 }
 
 function renderResults(r) {
