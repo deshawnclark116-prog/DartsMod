@@ -48,9 +48,9 @@ class LegResult:
     checkout: int                    # the score the winner checked out from
 
 
-def _scoring_dart(player: DartsPlayer, rng: random.Random) -> int:
+def _scoring_dart(treble_prob: float, rng: random.Random) -> int:
     """Return the points from a single dart thrown while scoring (aiming T20)."""
-    if rng.random() < player.treble_prob:
+    if rng.random() < treble_prob:
         return 60
     roll = rng.random()
     cumulative = 0.0
@@ -61,8 +61,20 @@ def _scoring_dart(player: DartsPlayer, rng: random.Random) -> int:
     return 0
 
 
-def play_visit(score: int, player: DartsPlayer, rng: random.Random) -> VisitResult:
-    """Simulate one three-dart visit from ``score`` and return the outcome."""
+def play_visit(
+    score: int,
+    player: DartsPlayer,
+    rng: random.Random,
+    treble_prob: Optional[float] = None,
+) -> VisitResult:
+    """Simulate one three-dart visit from ``score`` and return the outcome.
+
+    ``treble_prob`` overrides the player's baseline treble rate (used to apply the
+    throw-role and per-match form adjustments); it governs both scoring darts and
+    treble setup darts within the visit.
+    """
+    if treble_prob is None:
+        treble_prob = player.treble_prob
     start = score
     darts = 0
     double_attempts = 0
@@ -90,7 +102,7 @@ def play_visit(score: int, player: DartsPlayer, rng: random.Random) -> VisitResu
                 # else: missed the board entirely, score unchanged; try again.
             else:
                 # Setup dart (single or treble).
-                success = player.treble_prob if kind == "T" else player.single_prob
+                success = treble_prob if kind == "T" else player.single_prob
                 if rng.random() < success:
                     score -= value
                 elif kind == "T":
@@ -99,7 +111,7 @@ def play_visit(score: int, player: DartsPlayer, rng: random.Random) -> VisitResu
                 # A missed single is treated as a wasted dart (score unchanged).
         else:
             # Pure scoring dart.
-            gained = _scoring_dart(player, rng)
+            gained = _scoring_dart(treble_prob, rng)
             if score - gained >= 2:
                 score -= gained
             # Otherwise the dart would bust; the player would pull it, no change.
@@ -115,12 +127,15 @@ def simulate_leg(
     p1_start: int = 501,
     p2_start: int = 501,
     p1_to_throw: Optional[bool] = None,
+    p1_form_delta: float = 0.0,
+    p2_form_delta: float = 0.0,
 ) -> LegResult:
     """Simulate a single leg of 501.
 
-    The leg can be resumed mid-way for live/in-play prediction by supplying the
-    current remaining scores and whose turn it is (``p1_to_throw``). By default the
-    leg starts fresh with the thrower given by ``p1_throws_first``.
+    Each player scores at their with-throw or against-throw rate depending on who
+    started the leg, shifted by that match's form delta. The leg can be resumed
+    mid-way for live/in-play prediction via ``p1_start``/``p2_start`` and
+    ``p1_to_throw``.
     """
     scores = {1: p1_start, 2: p2_start}
     players = {1: player_1, 2: player_2}
@@ -128,6 +143,12 @@ def simulate_leg(
     one_eighties = {1: 0, 2: 0}
     double_attempts = {1: 0, 2: 0}
     double_hits = {1: 0, 2: 0}
+
+    # Throw role for this leg: whoever starts is "with throw".
+    treble = {
+        1: player_1.treble_for(p1_throws_first, p1_form_delta),
+        2: player_2.treble_for(not p1_throws_first, p2_form_delta),
+    }
 
     to_throw = p1_throws_first if p1_to_throw is None else p1_to_throw
     turn = 1 if to_throw else 2
@@ -137,7 +158,7 @@ def simulate_leg(
     while winner == 0:
         player = players[turn]
         before = scores[turn]
-        result = play_visit(before, player, rng)
+        result = play_visit(before, player, rng, treble[turn])
 
         scores[turn] = result.new_score
         darts[turn] += result.darts

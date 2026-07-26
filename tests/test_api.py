@@ -25,7 +25,8 @@ def test_players_endpoint(monkeypatch):
     import dartsmod.api as api_mod
     roster = [
         {"key": 1, "name": "Luke Littler", "country": "ENG",
-         "scoring_average": 105.0, "three_dart_average": 101.0, "checkout_percentage": 43.0},
+         "scoring_average": 105.0, "three_dart_average": 101.0, "checkout_percentage": 43.0,
+         "with_throw_average": 106.0, "against_throw_average": 104.0, "form_std": 5.0},
     ]
     monkeypatch.setattr(api_mod, "find_players", lambda query="", limit=200: roster)
     resp = client.get("/players?q=luke")
@@ -38,7 +39,8 @@ def test_players_endpoint(monkeypatch):
 def test_fixtures_endpoint(monkeypatch):
     import dartsmod.api as api_mod
     roster = [{"key": 34, "name": "Luke Humphries", "country": "ENG",
-               "scoring_average": 109.3, "three_dart_average": 99.7, "checkout_percentage": 41.1}]
+               "scoring_average": 109.3, "three_dart_average": 99.7, "checkout_percentage": 41.1,
+               "with_throw_average": 110.0, "against_throw_average": 108.6, "form_std": 4.5}]
     matches = [{"event": "World Matchplay", "round": "Final", "date": "2026-07-26T19:00:00Z",
                 "p1_key": 34, "p1_name": "Luke Humphries",
                 "p2_key": 9999, "p2_name": "Qualifier X"}]

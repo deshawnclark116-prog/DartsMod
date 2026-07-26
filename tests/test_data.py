@@ -20,7 +20,7 @@ def _fake_payloads():
 
 def test_build_database_joins_and_validates(monkeypatch):
     payloads = _fake_payloads()
-    monkeypatch.setattr(data, "_fetch_json", lambda rank_key, *a, **k: payloads[rank_key])
+    monkeypatch.setattr(data, "_fetch_json", lambda rank_key, *a, **k: payloads.get(rank_key, {"data": []}))
 
     players = data.build_player_database(top_n=10)
     by_name = {p["name"]: p for p in players}
@@ -46,8 +46,12 @@ def test_get_players_falls_back_on_failure(monkeypatch):
 
     monkeypatch.setattr(data, "build_player_database", boom)
     players = data.get_players(force_refresh=True)
-    assert players == data._FALLBACK_PLAYERS
+    assert len(players) == len(data._FALLBACK_PLAYERS)
     assert any(p["name"] == "Luke Littler" for p in players)
+    # Fallback records are normalized to the full schema.
+    from dartsmod.api import PlayerOut
+    for p in players:
+        PlayerOut(**p)
 
 
 def test_get_players_uses_cache(monkeypatch):
@@ -103,7 +107,7 @@ def test_null_and_malformed_values_do_not_break(monkeypatch):
         data.RANK_KEYS["first9"]: {"data": []},
         data.RANK_KEYS["checkout"]: {"data": []},
     }
-    monkeypatch.setattr(data, "_fetch_json", lambda rank_key, *a, **k: payloads[rank_key])
+    monkeypatch.setattr(data, "_fetch_json", lambda rank_key, *a, **k: payloads.get(rank_key, {"data": []}))
     data._cache["players"] = None
     data._cache["ts"] = 0.0
 
@@ -160,6 +164,44 @@ def test_coerce_float():
     assert data._coerce_float("42.5", 0.0) == 42.5
     assert data._coerce_float(None, 9.0) == 9.0
     assert data._coerce_float("n/a", 9.0) == 9.0
+
+
+def test_fraction_parsing():
+    payload = {"data": [
+        {"player_key": 1, "stat": "84/147"},
+        {"player_key": 2, "stat": "0/0"},      # zero denominator -> skipped
+        {"player_key": 3, "stat": "bad"},      # no slash -> skipped
+    ]}
+    import dartsmod.data as d
+    orig = d._fetch_json
+    d._fetch_json = lambda *a, **k: payload
+    try:
+        m = d._fetch_fraction_map(10006, "a", "b", 1)
+    finally:
+        d._fetch_json = orig
+    assert round(m[1]["frac"], 3) == round(84 / 147, 3)
+    assert m[1]["total"] == 147
+    assert 2 not in m and 3 not in m
+
+
+def test_form_std_estimate():
+    # A player averaging 100 who hits 100+ half the time and 110+ rarely
+    # should get a moderate, clamped std.
+    std = data._estimate_form_std(100.0, [(100.0, 0.5), (105.0, 0.30), (110.0, 0.12)])
+    assert 3.0 <= std <= 12.0
+    # No usable buckets -> default.
+    assert data._estimate_form_std(100.0, [(100.0, None), (105.0, None), (110.0, None)]) == 6.0
+
+
+def test_blend_recency():
+    long_map = {1: {"stat": 90.0}}
+    recent_map = {1: {"stat": 100.0}}
+    # 0.6 recent + 0.4 long
+    assert abs(data._blend(long_map, recent_map, 1, 0.6) - 96.0) < 1e-9
+    # falls back to whichever exists
+    assert data._blend(long_map, {}, 1) == 90.0
+    assert data._blend({}, recent_map, 1) == 100.0
+    assert data._blend({}, {}, 1) is None
 
 
 def test_parse_stat():

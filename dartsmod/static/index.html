@@ -259,9 +259,17 @@ async function runSim(p1, p2, formatOverride) {
   status.classList.remove("hidden");
   document.getElementById("predictBtn").disabled = true;
 
+  const toBody = (p) => ({
+    name: p.name,
+    scoring_average: p.scoring_average,
+    checkout_percentage: p.checkout_percentage,
+    with_throw_average: p.with_throw_average,
+    against_throw_average: p.against_throw_average,
+    form_std: p.form_std,
+  });
   const body = {
-    player_1: { name: p1.name, scoring_average: p1.scoring_average, checkout_percentage: p1.checkout_percentage },
-    player_2: { name: p2.name, scoring_average: p2.scoring_average, checkout_percentage: p2.checkout_percentage },
+    player_1: toBody(p1),
+    player_2: toBody(p2),
     sims: parseInt(document.getElementById("sims").value) || 10000,
     over_under_line: parseFloat(document.getElementById("ouLine").value) || 10.5,
   };

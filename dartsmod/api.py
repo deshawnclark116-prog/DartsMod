@@ -28,6 +28,7 @@ except ImportError as exc:  # pragma: no cover - import guard
         "The API requires FastAPI and Uvicorn. Install with: pip install -e '.[api]'"
     ) from exc
 
+from . import data
 from .data import find_players, get_players, get_upcoming_matches, infer_match_format
 from .formats import PRESETS, Format, resolve_format
 from .match import LiveState
@@ -60,6 +61,9 @@ class PlayerIn(BaseModel):
     scoring_average: float = Field(98.0, description="Three-dart scoring (First-9) average", ge=1, le=180)
     double_prob: Optional[float] = Field(None, description="Per-dart double probability, 0-1", ge=0, le=1)
     checkout_percentage: Optional[float] = Field(None, description="Checkout %% (alternative to double_prob)", ge=0, le=100)
+    with_throw_average: Optional[float] = Field(None, description="Scoring average in legs the player starts")
+    against_throw_average: Optional[float] = Field(None, description="Scoring average in legs the opponent starts")
+    form_std: Optional[float] = Field(None, description="Match-to-match scoring volatility (points)")
 
     def to_player(self) -> DartsPlayer:
         if self.double_prob is not None:
@@ -68,7 +72,14 @@ class PlayerIn(BaseModel):
             dp = self.checkout_percentage / 100.0
         else:
             dp = 0.40
-        return DartsPlayer(name=self.name, scoring_average=self.scoring_average, double_prob=dp)
+        return DartsPlayer(
+            name=self.name,
+            scoring_average=self.scoring_average,
+            double_prob=dp,
+            with_throw_average=self.with_throw_average,
+            against_throw_average=self.against_throw_average,
+            form_std=self.form_std if self.form_std is not None else 0.0,
+        )
 
 
 class LiveStateIn(BaseModel):
@@ -154,6 +165,9 @@ class PlayerOut(BaseModel):
     scoring_average: float
     three_dart_average: float
     checkout_percentage: float
+    with_throw_average: float
+    against_throw_average: float
+    form_std: float
 
 
 _INDEX_HTML = (pathlib.Path(__file__).parent / "static" / "index.html")
@@ -166,6 +180,12 @@ _NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "
 def index() -> HTMLResponse:
     """Serve the built-in web UI from the same origin as the API."""
     return HTMLResponse(_INDEX_HTML.read_text(encoding="utf-8"), headers=_NO_CACHE)
+
+
+@api.on_event("startup")
+def _warm_roster() -> None:
+    """Kick off the first roster build in the background as the server boots."""
+    data._background_refresh()
 
 
 @api.get("/health")
@@ -189,6 +209,9 @@ class FixturePlayer(BaseModel):
     name: str
     scoring_average: float
     checkout_percentage: float
+    with_throw_average: float
+    against_throw_average: float
+    form_std: float
     known: bool  # True if we have real stats; False = using defaults
 
 
@@ -221,9 +244,13 @@ def fixtures(response: Response) -> List[dict]:
         r = roster.get(key)
         if r:
             return {"key": key, "name": r["name"], "scoring_average": r["scoring_average"],
-                    "checkout_percentage": r["checkout_percentage"], "known": True}
+                    "checkout_percentage": r["checkout_percentage"],
+                    "with_throw_average": r["with_throw_average"],
+                    "against_throw_average": r["against_throw_average"],
+                    "form_std": r["form_std"], "known": True}
         return {"key": key, "name": name or "Unknown", "scoring_average": 95.0,
-                "checkout_percentage": 38.0, "known": False}
+                "checkout_percentage": 38.0, "with_throw_average": 95.0,
+                "against_throw_average": 95.0, "form_std": 6.0, "known": False}
 
     return [
         {

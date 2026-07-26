@@ -26,6 +26,7 @@ hard-fails.
 from __future__ import annotations
 
 import json
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -137,6 +138,9 @@ def _normalize(player: dict) -> dict:
         "scoring_average": scoring,
         "three_dart_average": _coerce_float(player.get("three_dart_average"), scoring),
         "checkout_percentage": _coerce_float(player.get("checkout_percentage"), _DEFAULT_CHECKOUT),
+        "with_throw_average": _coerce_float(player.get("with_throw_average"), scoring),
+        "against_throw_average": _coerce_float(player.get("against_throw_average"), scoring),
+        "form_std": _coerce_float(player.get("form_std"), 6.0),
     }
 
 
@@ -157,38 +161,156 @@ def _fetch_stat_map(rank_key: int, date_from: str, date_to: str, min_matches: in
     return result
 
 
+# Additional stat feeds used by the richer model.
+RANK_KEYS.update({
+    "with_throw": 1031,      # three-dart average in legs the player starts
+    "against_throw": 1032,   # three-dart average in legs the opponent starts
+    "pct_100": 10006,        # matches with a 100+ average (as "count/total")
+    "pct_105": 10005,
+    "pct_110": 10012,
+})
+
+
+def _fetch_fraction_map(rank_key: int, date_from: str, date_to: str, min_matches: int) -> Dict[int, dict]:
+    """Return ``{player_key: {frac, total}}`` for a "count/total" stat."""
+    payload = _fetch_json(rank_key, date_from, date_to, min_matches)
+    result: Dict[int, dict] = {}
+    for row in payload.get("data", []):
+        key = row.get("player_key")
+        raw = str(row.get("stat") or "")
+        if key is None or "/" not in raw:
+            continue
+        num, _, den = raw.partition("/")
+        try:
+            n, d = float(num), float(den)
+        except ValueError:
+            continue
+        if d > 0:
+            result[key] = {"frac": n / d, "total": d}
+    return result
+
+
+def _inv_norm(p: float) -> float:
+    """Inverse standard-normal CDF (Acklam's approximation)."""
+    import math
+    a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+         1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00]
+    b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+         6.680131188771972e+01, -1.328068155288572e+01]
+    c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+         -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00]
+    d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+         3.754408661907416e+00]
+    plow, phigh = 0.02425, 1 - 0.02425
+    if p < plow:
+        q = math.sqrt(-2 * math.log(p))
+        return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)
+    if p <= phigh:
+        q = p - 0.5
+        r = q * q
+        return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1)
+    q = math.sqrt(-2 * math.log(1 - p))
+    return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)
+
+
+def _estimate_form_std(mean: float, buckets: List[tuple]) -> float:
+    """Estimate a player's match-to-match scoring std from consistency buckets.
+
+    Each bucket is ``(threshold, fraction_of_matches_at_or_above)``. Fitting a
+    normal N(mean, std) to each gives std = (threshold - mean) / z, z = invΦ(1-p);
+    we average the valid estimates and clamp to a sane band.
+    """
+    estimates = []
+    for threshold, frac in buckets:
+        if frac is None or not (0.02 < frac < 0.98):
+            continue
+        z = _inv_norm(1 - frac)
+        if abs(z) < 0.25:
+            continue
+        std = (threshold - mean) / z
+        if std > 0:
+            estimates.append(std)
+    if not estimates:
+        return 6.0
+    return round(min(12.0, max(3.0, sum(estimates) / len(estimates))), 1)
+
+
+def _blend(long_map, recent_map, key, weight_recent=0.6):
+    """Recency-weighted blend of a stat, falling back to whichever exists."""
+    lv = long_map.get(key, {}).get("stat")
+    rv = recent_map.get(key, {}).get("stat")
+    if lv is not None and rv is not None:
+        return weight_recent * rv + (1 - weight_recent) * lv
+    return rv if rv is not None else lv
+
+
 def build_player_database(
     top_n: int = 150,
     months: int = 12,
+    recent_days: int = 90,
     min_matches: int = 20,
+    recent_min_matches: int = 5,
 ) -> List[dict]:
-    """Build a roster of current professionals with simulation-ready stats.
+    """Build a roster of current professionals with the full model inputs.
 
-    Players are ranked by recent three-dart average; First-9 average (used as the
-    scoring average) and checkout percentage (used as the double probability) are
-    joined on by player key. Raises on network failure -- callers should use
-    :func:`get_players`, which handles caching and fallback.
+    Combines, per player (joined by key):
+    * scoring average (First-9), three-dart average, checkout %
+    * with-throw / against-throw scoring (applied as a split around First-9)
+    * a match-to-match form std fitted from the 100+/105+/110+ consistency buckets
+    * recency weighting: recent form blended over the trailing 12 months
+
+    Raises on network failure -- callers should use :func:`get_players`.
     """
     today = date.today()
     date_to = today.isoformat()
-    date_from = (today - timedelta(days=int(months * 30.5))).isoformat()
+    long_from = (today - timedelta(days=int(months * 30.5))).isoformat()
+    recent_from = (today - timedelta(days=recent_days)).isoformat()
 
-    averages = _fetch_stat_map(RANK_KEYS["average"], date_from, date_to, min_matches)
-    first9 = _fetch_stat_map(RANK_KEYS["first9"], date_from, date_to, min_matches)
-    checkout = _fetch_stat_map(RANK_KEYS["checkout"], date_from, date_to, min_matches)
+    def stat(rk, dfrom, mm):
+        return _fetch_stat_map(RANK_KEYS[rk], dfrom, date_to, mm)
 
-    # Rank by three-dart average, highest first.
-    ranked = sorted(averages.items(), key=lambda kv: kv[1]["stat"], reverse=True)[:top_n]
+    # Long window (the roster + stable signals).
+    avg_l = stat("average", long_from, min_matches)
+    first9_l = stat("first9", long_from, min_matches)
+    checkout_l = stat("checkout", long_from, min_matches)
+    wt_l = stat("with_throw", long_from, min_matches)
+    at_l = stat("against_throw", long_from, min_matches)
+    # Recent window (form).
+    avg_r = stat("average", recent_from, recent_min_matches)
+    first9_r = stat("first9", recent_from, recent_min_matches)
+    checkout_r = stat("checkout", recent_from, recent_min_matches)
+    wt_r = stat("with_throw", recent_from, recent_min_matches)
+    at_r = stat("against_throw", recent_from, recent_min_matches)
+    # Consistency buckets (variance).
+    c100 = _fetch_fraction_map(RANK_KEYS["pct_100"], long_from, date_to, min_matches)
+    c105 = _fetch_fraction_map(RANK_KEYS["pct_105"], long_from, date_to, min_matches)
+    c110 = _fetch_fraction_map(RANK_KEYS["pct_110"], long_from, date_to, min_matches)
+
+    ranked = sorted(avg_l.items(), key=lambda kv: kv[1]["stat"], reverse=True)[:top_n]
 
     players: List[dict] = []
     for key, avg_row in ranked:
-        three_dart = avg_row["stat"]
-        scoring = first9.get(key, {}).get("stat") or three_dart
-        checkout_raw = checkout.get(key, {}).get("stat")
-        if checkout_raw is not None and _CHECKOUT_MIN <= checkout_raw <= _CHECKOUT_MAX:
-            checkout_pct = round(checkout_raw, 1)
+        three_dart = _blend(avg_l, avg_r, key) or avg_row["stat"]
+        scoring = _blend(first9_l, first9_r, key) or three_dart
+        checkout_raw = _blend(checkout_l, checkout_r, key)
+        checkout_pct = round(checkout_raw, 1) if (checkout_raw and _CHECKOUT_MIN <= checkout_raw <= _CHECKOUT_MAX) else _DEFAULT_CHECKOUT
+
+        # Throw split: apply half the with/against gap around the scoring average.
+        wt = _blend(wt_l, wt_r, key)
+        at = _blend(at_l, at_r, key)
+        if wt is not None and at is not None:
+            gap = wt - at
+            with_avg = round(scoring + gap / 2, 1)
+            against_avg = round(scoring - gap / 2, 1)
         else:
-            checkout_pct = _DEFAULT_CHECKOUT
+            with_avg = against_avg = round(scoring, 1)
+
+        form_std = _estimate_form_std(three_dart, [
+            (100.0, c100.get(key, {}).get("frac")),
+            (105.0, c105.get(key, {}).get("frac")),
+            (110.0, c110.get(key, {}).get("frac")),
+        ])
+
         players.append({
             "key": key,
             "name": avg_row["name"],
@@ -196,31 +318,67 @@ def build_player_database(
             "scoring_average": round(scoring, 1),
             "three_dart_average": round(three_dart, 1),
             "checkout_percentage": checkout_pct,
+            "with_throw_average": with_avg,
+            "against_throw_average": against_avg,
+            "form_std": form_std,
         })
     return players
 
 
-def get_players(force_refresh: bool = False) -> List[dict]:
-    """Return the cached player roster, refreshing from the source when stale.
+_refreshing = {"flag": False}
 
-    Never raises: on failure it serves the last good cache, or the built-in
-    fallback roster.
+
+def _do_build() -> List[dict]:
+    players = build_player_database()
+    return [_normalize(p) for p in players] if players else []
+
+
+def _background_refresh() -> None:
+    """Kick off a roster rebuild in a daemon thread (at most one at a time)."""
+    if _refreshing["flag"]:
+        return
+    _refreshing["flag"] = True
+
+    def run() -> None:
+        try:
+            built = _do_build()
+            if built:
+                _cache["players"] = built
+                _cache["ts"] = time.time()
+        except Exception:
+            pass
+        finally:
+            _refreshing["flag"] = False
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def get_players(force_refresh: bool = False) -> List[dict]:
+    """Return the cached player roster; refresh in the background when stale.
+
+    Never blocks a caller on the (~30s, 13-request) rebuild: a fresh cache is
+    returned immediately, a stale/empty cache triggers a background refresh and
+    serves the current cache (or the built-in fallback) meanwhile. Never raises.
+    ``force_refresh`` rebuilds synchronously (used by tests / explicit warmups).
     """
     now = time.time()
     cached = _cache.get("players")
-    if not force_refresh and cached and (now - float(_cache["ts"])) < _CACHE_TTL_SECONDS:
+
+    if force_refresh:
+        try:
+            built = _do_build()
+            if built:
+                _cache["players"] = built
+                _cache["ts"] = now
+                return built
+        except Exception:
+            pass
+        return cached if cached else [_normalize(p) for p in _FALLBACK_PLAYERS]  # type: ignore[return-value]
+
+    if cached and (now - float(_cache["ts"])) < _CACHE_TTL_SECONDS:
         return cached  # type: ignore[return-value]
 
-    try:
-        players = build_player_database()
-        if players:
-            players = [_normalize(p) for p in players]
-            _cache["players"] = players
-            _cache["ts"] = now
-            return players
-    except Exception:
-        pass  # fall through to cache / fallback
-
+    _background_refresh()
     if cached:
         return cached  # type: ignore[return-value]
     return [_normalize(p) for p in _FALLBACK_PLAYERS]

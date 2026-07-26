@@ -79,6 +79,11 @@ def simulate_match(
     total_legs = {1: 0, 2: 0}
     legs_played = 0
 
+    # Each player has a "night": a single form level for the whole match, drawn
+    # from their match-to-match volatility. This is what makes upsets emerge.
+    p1_form = rng.gauss(0.0, player_1.form_std) if player_1.form_std else 0.0
+    p2_form = rng.gauss(0.0, player_2.form_std) if player_2.form_std else 0.0
+
     if state is None:
         set_starter_p1 = first_thrower_p1
         legs_in_set = {1: 0, 2: 0}
@@ -117,11 +122,15 @@ def simulate_match(
                     player_1, player_2, leg_starter_p1, rng,
                     p1_start=resume_scores[1], p2_start=resume_scores[2],
                     p1_to_throw=resume_turn,
+                    p1_form_delta=p1_form, p2_form_delta=p2_form,
                 )
                 resume_scores = None
                 resume_turn = None
             else:
-                leg = simulate_leg(player_1, player_2, leg_starter_p1, rng)
+                leg = simulate_leg(
+                    player_1, player_2, leg_starter_p1, rng,
+                    p1_form_delta=p1_form, p2_form_delta=p2_form,
+                )
             record_leg(leg)
             leg_starter_p1 = not leg_starter_p1
 
