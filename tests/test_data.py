@@ -145,9 +145,10 @@ def test_upcoming_matches_fallback_on_error(monkeypatch):
 
 
 def test_infer_match_format():
-    # World Matchplay is leg play, not sets.
+    # World Matchplay is leg play, not sets, with a win-by-two tie-break.
     f = data.infer_match_format("World Matchplay 2026", "Final")
     assert f["sets_to_win"] == 1 and f["legs_to_win_set"] == 18
+    assert f["win_by_two"] is True and f["sudden_death_at"] == 20
     assert data.infer_match_format("World Matchplay 2026", "Quarter Final")["legs_to_win_set"] == 16
     # World Championship is set play.
     wc = data.infer_match_format("PDC World Championship 2026", "Final")

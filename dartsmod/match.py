@@ -111,12 +111,27 @@ def simulate_match(
         high_checkout[leg.winner] = max(high_checkout[leg.winner], leg.checkout)
         legs_played += 1
 
+    def set_decided(l1: int, l2: int, decider: bool) -> bool:
+        """Whether the current set is complete, honouring decider tie-break rules."""
+        target = fmt.legs_to_win_set
+        if not decider:
+            return l1 >= target or l2 >= target
+        # Decider: must win by two, with an optional sudden-death cap.
+        if max(l1, l2) >= target and abs(l1 - l2) >= 2:
+            return True
+        if fmt.sudden_death_at is not None and (l1 > fmt.sudden_death_at or l2 > fmt.sudden_death_at):
+            return True  # the sudden-death leg (at N-N) has been played
+        return False
+
     while sets[1] < fmt.sets_to_win and sets[2] < fmt.sets_to_win:
+        # The decider is the deciding set (both on match point) or, for leg-play,
+        # the match itself.
+        is_decider = fmt.win_by_two and (
+            fmt.sets_to_win == 1
+            or (sets[1] == fmt.sets_to_win - 1 and sets[2] == fmt.sets_to_win - 1)
+        )
         # Play out the current set.
-        while (
-            legs_in_set[1] < fmt.legs_to_win_set
-            and legs_in_set[2] < fmt.legs_to_win_set
-        ):
+        while not set_decided(legs_in_set[1], legs_in_set[2], is_decider):
             if resume_scores is not None:
                 leg = simulate_leg(
                     player_1, player_2, leg_starter_p1, rng,

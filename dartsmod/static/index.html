@@ -277,6 +277,8 @@ async function runSim(p1, p2, formatOverride) {
     // Auto-detected format for a real fixture.
     body.legs_to_win_set = formatOverride.legs_to_win_set;
     body.sets_to_win = formatOverride.sets_to_win;
+    body.win_by_two = formatOverride.win_by_two;
+    body.sudden_death_at = formatOverride.sudden_death_at;
   } else {
     body.format = document.getElementById("format").value;
   }

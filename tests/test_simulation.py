@@ -91,6 +91,31 @@ def test_stage_and_fatigue_reduce_strength():
     assert tired.scoring_average == base.scoring_average - 2.0
 
 
+def test_win_by_two_decider_margin():
+    from dartsmod.formats import Format
+    # Leg-play decider, first to 6, win by two, sudden death at 8-8.
+    fmt = Format(name="WB2", legs_to_win_set=6, sets_to_win=1, win_by_two=True, sudden_death_at=8)
+    rng = random.Random(0)
+    p1, p2 = _player("A"), _player("B")
+    for _ in range(300):
+        m = simulate_match(p1, p2, fmt, rng)
+        l1, l2 = m.legs[1], m.legs[2]
+        # Either won by >=2 legs, or settled by the sudden-death leg (a 1-leg
+        # margin only allowed once a player has passed the sudden-death mark).
+        if abs(l1 - l2) < 2:
+            assert max(l1, l2) == fmt.sudden_death_at + 1
+        assert max(l1, l2) >= fmt.legs_to_win_set
+
+
+def test_world_championship_final_completes():
+    from dartsmod.formats import WORLD_CHAMPIONSHIP_FINAL
+    rng = random.Random(1)
+    p1, p2 = _player("A", 101), _player("B", 99)
+    m = simulate_match(p1, p2, WORLD_CHAMPIONSHIP_FINAL, rng)
+    assert m.sets[m.winner] == 7
+    assert m.winner in (1, 2)
+
+
 def test_match_result_helpers():
     p1, p2 = _player("A", 101), _player("B", 99)
     rng = random.Random(0)

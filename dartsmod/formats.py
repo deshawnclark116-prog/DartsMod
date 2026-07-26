@@ -13,6 +13,7 @@ single set to win.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -21,11 +22,21 @@ class Format:
 
     ``legs_to_win_set`` legs win a set; ``sets_to_win`` sets win the match.
     For a pure leg-play format, ``sets_to_win`` is 1.
+
+    Tie-break rules (applied to the *decider* -- the deciding set in set-play, or
+    the whole match in leg-play):
+
+    * ``win_by_two`` -- the decider must be won by two clear legs.
+    * ``sudden_death_at`` -- legs-each in the decider at which a single sudden-death
+      leg settles it (e.g. World Championship deciding set: 5, so 5-5 -> one leg;
+      World Matchplay first-to-10: 12, so 12-12 -> one leg).
     """
 
     name: str
     legs_to_win_set: int
     sets_to_win: int = 1
+    win_by_two: bool = False
+    sudden_death_at: Optional[int] = None
 
     @property
     def is_set_play(self) -> bool:
@@ -63,11 +74,16 @@ def set_play(legs_per_set: int, sets_to_win: int) -> Format:
 
 PREMIER_LEAGUE = Format(name="Premier League (first to 6 legs)", legs_to_win_set=6)
 PLAYERS_CHAMPIONSHIP = Format(name="Players Championship (first to 6 legs)", legs_to_win_set=6)
-WORLD_MATCHPLAY_EARLY = Format(name="World Matchplay R1 (first to 10 legs)", legs_to_win_set=10)
+WORLD_MATCHPLAY_EARLY = Format(name="World Matchplay R1 (first to 10 legs)", legs_to_win_set=10,
+                               win_by_two=True, sudden_death_at=12)
 UK_OPEN_FINAL = Format(name="UK Open final (first to 11 legs)", legs_to_win_set=11)
-WORLD_CHAMPIONSHIP_R1 = set_play(legs_per_set=3, sets_to_win=2)
-WORLD_CHAMPIONSHIP_SEMI = set_play(legs_per_set=3, sets_to_win=6)
-WORLD_CHAMPIONSHIP_FINAL = set_play(legs_per_set=3, sets_to_win=7)
+# World Championship: deciding set is win-by-two, sudden death at 5-5.
+WORLD_CHAMPIONSHIP_R1 = Format(name="First to 3 sets (first to 3 legs)", legs_to_win_set=3,
+                               sets_to_win=3, win_by_two=True, sudden_death_at=5)
+WORLD_CHAMPIONSHIP_SEMI = Format(name="First to 6 sets (first to 3 legs)", legs_to_win_set=3,
+                                 sets_to_win=6, win_by_two=True, sudden_death_at=5)
+WORLD_CHAMPIONSHIP_FINAL = Format(name="First to 7 sets (first to 3 legs)", legs_to_win_set=3,
+                                  sets_to_win=7, win_by_two=True, sudden_death_at=5)
 
 PRESETS = {
     "premier_league": PREMIER_LEAGUE,

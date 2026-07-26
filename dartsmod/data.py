@@ -406,44 +406,46 @@ def infer_match_format(event_title: str, round_name: str) -> dict:
     e = (event_title or "").lower()
     r = (round_name or "").lower()
 
-    def leg(n: int) -> dict:
-        return {"label": f"First to {n} legs", "legs_to_win_set": n, "sets_to_win": 1}
+    def leg(n: int, win_by_two: bool = False) -> dict:
+        return {"label": f"First to {n} legs", "legs_to_win_set": n, "sets_to_win": 1,
+                "win_by_two": win_by_two, "sudden_death_at": (n + 2) if win_by_two else None}
 
-    def setp(legs: int, sets: int) -> dict:
+    def setp(legs: int, sets: int, win_by_two: bool = False) -> dict:
         return {"label": f"First to {sets} sets (first to {legs} legs)",
-                "legs_to_win_set": legs, "sets_to_win": sets}
+                "legs_to_win_set": legs, "sets_to_win": sets,
+                "win_by_two": win_by_two, "sudden_death_at": 5 if win_by_two else None}
 
     is_final = "final" in r and "semi" not in r and "quarter" not in r
     is_semi = "semi" in r
     is_quarter = "quarter" in r
     women = "women" in e or "ladies" in e
 
-    # World Championship (PDC) -- set play.
+    # World Championship (PDC) -- set play, deciding set win-by-two (5-5 sudden death).
     if "world championship" in e and not women:
-        if is_final: return setp(3, 7)
-        if is_semi: return setp(3, 6)
-        if is_quarter: return setp(3, 5)
-        if "round 4" in r or "fourth" in r: return setp(3, 5)
-        if "round 3" in r or "third" in r: return setp(3, 4)
-        if "round 2" in r or "second" in r: return setp(3, 4)
-        return setp(3, 3)
+        if is_final: return setp(3, 7, win_by_two=True)
+        if is_semi: return setp(3, 6, win_by_two=True)
+        if is_quarter: return setp(3, 5, win_by_two=True)
+        if "round 4" in r or "fourth" in r: return setp(3, 5, win_by_two=True)
+        if "round 3" in r or "third" in r: return setp(3, 4, win_by_two=True)
+        if "round 2" in r or "second" in r: return setp(3, 4, win_by_two=True)
+        return setp(3, 3, win_by_two=True)
 
     # World Grand Prix -- set play, double-start.
     if "grand prix" in e:
-        if is_final: return setp(3, 5)
-        if is_semi or is_quarter: return setp(3, 3)
-        if "round 2" in r or "second" in r: return setp(3, 3)
-        return setp(2, 2)
+        if is_final: return setp(3, 5, win_by_two=True)
+        if is_semi or is_quarter: return setp(3, 3, win_by_two=True)
+        if "round 2" in r or "second" in r: return setp(3, 3, win_by_two=True)
+        return setp(2, 2, win_by_two=True)
 
-    # World Matchplay -- leg play by round.
+    # World Matchplay -- leg play by round, win-by-two tie-break.
     if "matchplay" in e and not women:
-        if is_final: return leg(18)
-        if is_semi: return leg(17)
-        if is_quarter: return leg(16)
-        if "round 2" in r or "second" in r or "16" in r: return leg(11)
-        return leg(10)
+        if is_final: return leg(18, win_by_two=True)
+        if is_semi: return leg(17, win_by_two=True)
+        if is_quarter: return leg(16, win_by_two=True)
+        if "round 2" in r or "second" in r or "16" in r: return leg(11, win_by_two=True)
+        return leg(10, win_by_two=True)
     if "matchplay" in e and women:
-        return leg(8) if is_final else leg(6)
+        return leg(8, win_by_two=True) if is_final else leg(6, win_by_two=True)
 
     # Grand Slam of Darts -- leg play.
     if "grand slam" in e:

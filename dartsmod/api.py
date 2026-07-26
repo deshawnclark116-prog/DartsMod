@@ -110,6 +110,8 @@ class SimulateRequest(BaseModel):
     format: str = Field("premier_league", description="Preset name, 'bestofN', or 'firsttoN'")
     legs_to_win_set: Optional[int] = Field(None, description="Custom format: legs to win a set", ge=1)
     sets_to_win: Optional[int] = Field(None, description="Custom format: sets to win the match", ge=1)
+    win_by_two: bool = Field(False, description="Custom format: decider must be won by two clear legs")
+    sudden_death_at: Optional[int] = Field(None, description="Custom format: legs-each in the decider for sudden death")
     sims: int = Field(10_000, ge=1, le=MAX_SIMS)
     seed: Optional[int] = None
     first_thrower_p1: bool = True
@@ -124,7 +126,8 @@ class SimulateRequest(BaseModel):
                 f"First to {sets} sets (first to {legs} legs)"
                 if sets > 1 else f"First to {legs} legs"
             )
-            return Format(name=name, legs_to_win_set=legs, sets_to_win=sets)
+            return Format(name=name, legs_to_win_set=legs, sets_to_win=sets,
+                          win_by_two=self.win_by_two, sudden_death_at=self.sudden_death_at)
         try:
             return resolve_format(self.format)
         except (KeyError, ValueError):
@@ -219,6 +222,8 @@ class FixtureFormat(BaseModel):
     label: str
     legs_to_win_set: int
     sets_to_win: int
+    win_by_two: bool = False
+    sudden_death_at: Optional[int] = None
 
 
 class FixtureOut(BaseModel):

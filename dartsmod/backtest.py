@@ -124,35 +124,55 @@ def run_backtest(
     n: int = 1500,
     rich: bool = True,
     seed: int = 0,
+    n_bins: int = 5,
 ) -> dict:
-    """Score the model on ``matches``. The actual winner is outcome = 1."""
+    """Score the model on ``matches`` with an unbiased evaluation.
+
+    To measure calibration honestly we must NOT always label the winner as
+    "player A" (that forces every outcome to 1 and hides over/under-confidence).
+    Instead each match is randomly assigned an A/B orientation, we predict
+    P(A wins), and record the actual 0/1 outcome for A.
+    """
     rng = random.Random(seed)
-    probs: List[float] = []
+    preds: List[tuple] = []  # (predicted_prob_A, actual_A)
     for i, mm in enumerate(matches):
         winner = _make_player(mm["winner_key"], mm["winner_name"], index, rich)
         loser = _make_player(mm["loser_key"], mm["loser_name"], index, rich)
         fmt = first_to_legs(max(mm["w_score"], 2))  # winner's legs == first-to target
-        first_thrower_p1 = rng.random() < 0.5       # throw decided ~50/50 by bull-up
-        res = run_simulation(winner, loser, fmt, n=n, first_thrower_p1=first_thrower_p1, seed=seed + i)
-        probs.append(res.p1_win_prob)  # p1 == actual winner
 
-    k = len(probs)
+        a_is_winner = rng.random() < 0.5            # neutral A/B orientation
+        player_a, player_b = (winner, loser) if a_is_winner else (loser, winner)
+        actual_a = 1 if a_is_winner else 0
+        first_thrower_p1 = rng.random() < 0.5       # throw decided ~50/50 by bull-up
+        res = run_simulation(player_a, player_b, fmt, n=n, first_thrower_p1=first_thrower_p1, seed=seed + i)
+        preds.append((res.p1_win_prob, actual_a))
+
+    k = len(preds)
     if k == 0:
         return {"n_matches": 0}
-    accuracy = sum(1 for p in probs if p > 0.5) / k
-    brier = sum((1 - p) ** 2 for p in probs) / k
-    logloss = sum(-math.log(max(p, 1e-9)) for p in probs) / k
-    # Calibration: bucket predicted prob, compare to actual hit-rate (all outcomes==1).
-    bins: Dict[int, List[float]] = {}
-    for p in probs:
-        bins.setdefault(min(9, int(p * 10)), []).append(p)
-    calibration = {f"{b*10}-{b*10+10}%": {"n": len(v), "predicted": round(sum(v)/len(v), 3), "actual": 1.0}
-                   for b, v in sorted(bins.items())}
+
+    # Winner accuracy is orientation-independent (did the favourite win?).
+    accuracy = sum(1 for p, a in preds if (p > 0.5) == (a == 1)) / k
+    brier = sum((p - a) ** 2 for p, a in preds) / k
+    logloss = sum(-(a * math.log(max(p, 1e-9)) + (1 - a) * math.log(max(1 - p, 1e-9))) for p, a in preds) / k
+
+    # Reliability curve: mean predicted vs actual win-rate per probability bin.
+    buckets: Dict[int, List[tuple]] = {}
+    for p, a in preds:
+        buckets.setdefault(min(n_bins - 1, int(p * n_bins)), []).append((p, a))
+    calibration = {}
+    for b in sorted(buckets):
+        vals = buckets[b]
+        lo, hi = round(b / n_bins, 2), round((b + 1) / n_bins, 2)
+        calibration[f"{lo:.1f}-{hi:.1f}"] = {
+            "n": len(vals),
+            "predicted": round(sum(p for p, _ in vals) / len(vals), 3),
+            "actual": round(sum(a for _, a in vals) / len(vals), 3),
+        }
     return {
         "n_matches": k,
         "accuracy": round(accuracy, 3),
         "brier": round(brier, 4),
         "logloss": round(logloss, 4),
-        "mean_winner_prob": round(sum(probs) / k, 3),
         "calibration": calibration,
     }

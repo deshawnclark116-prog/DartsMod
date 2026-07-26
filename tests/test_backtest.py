@@ -45,9 +45,10 @@ def test_run_backtest_metrics_favour_stronger_player():
     ]
     result = bt.run_backtest(matches, index, n=400, rich=True, seed=1)
     assert result["n_matches"] == 6
-    assert result["mean_winner_prob"] > 0.6      # model liked the actual winner
     assert result["brier"] < 0.25                # better than a coin flip
-    assert result["accuracy"] >= 0.8
+    assert result["accuracy"] >= 0.8             # favourite (actual winner) picked
+    # Calibration is measured against real 0/1 outcomes (both orientations occur).
+    assert "calibration" in result
 
 
 def test_make_player_defaults_for_unknown():
