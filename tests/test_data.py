@@ -73,6 +73,23 @@ def test_find_players_search(monkeypatch):
     assert len(data.find_players("", limit=1)) == 1
 
 
+def test_all_records_have_full_schema():
+    # Every record (fallback or normalized) must carry the fields the API returns,
+    # otherwise the /players response fails validation with a 500.
+    required = {"key", "name", "country", "scoring_average", "three_dart_average", "checkout_percentage"}
+    for p in data._FALLBACK_PLAYERS:
+        assert required <= set(p.keys()), f"fallback player missing fields: {p['name']}"
+    normalized = data._normalize({"name": "X", "scoring_average": 90.0})
+    assert required <= set(normalized.keys())
+    assert normalized["three_dart_average"] == 90.0  # defaults to scoring average
+
+
+def test_fallback_roster_validates_against_response_model():
+    from dartsmod.api import PlayerOut
+    for p in data._FALLBACK_PLAYERS:
+        PlayerOut(**data._normalize(p))  # must not raise
+
+
 def test_parse_stat():
     assert data._parse_stat("101.47") == 101.47
     assert data._parse_stat("43.5%") == 43.5

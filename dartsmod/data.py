@@ -59,18 +59,18 @@ _cache: Dict[str, object] = {"players": None, "ts": 0.0}
 # Minimal offline roster so the product still works if the source is unreachable
 # and nothing has been cached yet. Stats are representative recent values.
 _FALLBACK_PLAYERS = [
-    {"key": 5403, "name": "Luke Littler", "country": "ENG", "scoring_average": 105.0, "checkout_percentage": 43.0},
-    {"key": 34, "name": "Luke Humphries", "country": "ENG", "scoring_average": 103.5, "checkout_percentage": 43.0},
-    {"key": 1, "name": "Michael van Gerwen", "country": "NED", "scoring_average": 101.0, "checkout_percentage": 40.0},
-    {"key": 2, "name": "Gerwyn Price", "country": "WAL", "scoring_average": 99.5, "checkout_percentage": 39.0},
-    {"key": 3, "name": "Gary Anderson", "country": "SCO", "scoring_average": 99.0, "checkout_percentage": 38.0},
-    {"key": 4, "name": "Rob Cross", "country": "ENG", "scoring_average": 98.5, "checkout_percentage": 39.0},
-    {"key": 5, "name": "Michael Smith", "country": "ENG", "scoring_average": 98.0, "checkout_percentage": 37.0},
-    {"key": 6, "name": "Nathan Aspinall", "country": "ENG", "scoring_average": 97.5, "checkout_percentage": 40.0},
-    {"key": 7, "name": "Stephen Bunting", "country": "ENG", "scoring_average": 97.5, "checkout_percentage": 41.0},
-    {"key": 8, "name": "Chris Dobey", "country": "ENG", "scoring_average": 97.0, "checkout_percentage": 40.0},
-    {"key": 9, "name": "Jonny Clayton", "country": "WAL", "scoring_average": 97.0, "checkout_percentage": 39.0},
-    {"key": 10, "name": "Danny Noppert", "country": "NED", "scoring_average": 96.5, "checkout_percentage": 40.0},
+    {"key": 5403, "name": "Luke Littler", "country": "ENG", "scoring_average": 105.0, "three_dart_average": 101.0, "checkout_percentage": 43.0},
+    {"key": 34, "name": "Luke Humphries", "country": "ENG", "scoring_average": 103.5, "three_dart_average": 99.5, "checkout_percentage": 43.0},
+    {"key": 1, "name": "Michael van Gerwen", "country": "NED", "scoring_average": 101.0, "three_dart_average": 97.0, "checkout_percentage": 40.0},
+    {"key": 2, "name": "Gerwyn Price", "country": "WAL", "scoring_average": 99.5, "three_dart_average": 96.5, "checkout_percentage": 39.0},
+    {"key": 3, "name": "Gary Anderson", "country": "SCO", "scoring_average": 99.0, "three_dart_average": 96.0, "checkout_percentage": 38.0},
+    {"key": 4, "name": "Rob Cross", "country": "ENG", "scoring_average": 98.5, "three_dart_average": 95.5, "checkout_percentage": 39.0},
+    {"key": 5, "name": "Michael Smith", "country": "ENG", "scoring_average": 98.0, "three_dart_average": 95.0, "checkout_percentage": 37.0},
+    {"key": 6, "name": "Nathan Aspinall", "country": "ENG", "scoring_average": 97.5, "three_dart_average": 94.5, "checkout_percentage": 40.0},
+    {"key": 7, "name": "Stephen Bunting", "country": "ENG", "scoring_average": 97.5, "three_dart_average": 94.5, "checkout_percentage": 41.0},
+    {"key": 8, "name": "Chris Dobey", "country": "ENG", "scoring_average": 97.0, "three_dart_average": 94.0, "checkout_percentage": 40.0},
+    {"key": 9, "name": "Jonny Clayton", "country": "WAL", "scoring_average": 97.0, "three_dart_average": 94.0, "checkout_percentage": 39.0},
+    {"key": 10, "name": "Danny Noppert", "country": "NED", "scoring_average": 96.5, "three_dart_average": 93.5, "checkout_percentage": 40.0},
 ]
 
 
@@ -86,16 +86,41 @@ def _parse_stat(value: object) -> Optional[float]:
 
 
 def _fetch_json(rank_key: int, date_from: str, date_to: str, min_matches: int) -> dict:
-    """Fetch one statistic table from DartsOrakel and return the parsed JSON."""
+    """Fetch one statistic table from DartsOrakel and return the parsed JSON.
+
+    Retries a couple of times because the upstream (behind Cloudflare) can be
+    briefly flaky from datacenter IPs.
+    """
     params = urllib.parse.urlencode({
         "rankKey": rank_key,
         "dateFrom": date_from,
         "dateTo": date_to,
         "minMatches": min_matches,
     })
-    request = urllib.request.Request(f"{_BASE_URL}?{params}", headers=_HEADERS)
-    with urllib.request.urlopen(request, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
+    url = f"{_BASE_URL}?{params}"
+    last_err: Optional[Exception] = None
+    for _ in range(3):
+        try:
+            request = urllib.request.Request(url, headers=_HEADERS)
+            with urllib.request.urlopen(request, timeout=25) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as err:  # noqa: BLE001 - retried, then re-raised
+            last_err = err
+            time.sleep(1.5)
+    raise last_err  # type: ignore[misc]
+
+
+def _normalize(player: dict) -> dict:
+    """Guarantee every record carries the full set of fields the API returns."""
+    scoring = player.get("scoring_average", 95.0)
+    return {
+        "key": player.get("key", 0),
+        "name": player.get("name", "Unknown"),
+        "country": player.get("country", ""),
+        "scoring_average": scoring,
+        "three_dart_average": player.get("three_dart_average", scoring),
+        "checkout_percentage": player.get("checkout_percentage", _DEFAULT_CHECKOUT),
+    }
 
 
 def _fetch_stat_map(rank_key: int, date_from: str, date_to: str, min_matches: int) -> Dict[int, dict]:
@@ -172,6 +197,7 @@ def get_players(force_refresh: bool = False) -> List[dict]:
     try:
         players = build_player_database()
         if players:
+            players = [_normalize(p) for p in players]
             _cache["players"] = players
             _cache["ts"] = now
             return players
@@ -180,7 +206,7 @@ def get_players(force_refresh: bool = False) -> List[dict]:
 
     if cached:
         return cached  # type: ignore[return-value]
-    return list(_FALLBACK_PLAYERS)
+    return [_normalize(p) for p in _FALLBACK_PLAYERS]
 
 
 def find_players(query: str = "", limit: int = 50) -> List[dict]:
