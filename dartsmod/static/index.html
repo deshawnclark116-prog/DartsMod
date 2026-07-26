@@ -146,7 +146,7 @@ async function fetchWithRetry(url, options, attempts = 4, timeoutMs = 90000) {
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), timeoutMs);
-      const res = await fetch(url, { ...options, signal: ctrl.signal });
+      const res = await fetch(url, { ...options, cache: "no-store", signal: ctrl.signal });
       clearTimeout(t);
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
@@ -169,7 +169,7 @@ async function loadPlayers() {
   const loadStatus = document.getElementById("loadStatus");
   const controls = document.getElementById("controls");
   try {
-    players = await fetchWithRetry(API + "/players", { method: "GET" });
+    players = await fetchWithRetry(API + "/players?_=" + Date.now(), { method: "GET" });
     const p1 = document.getElementById("p1"), p2 = document.getElementById("p2");
     players.forEach(p => p1.appendChild(option(p)));  // each select needs its own option nodes
     players.forEach(p => p2.appendChild(option(p)));

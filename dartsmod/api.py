@@ -19,7 +19,7 @@ import pathlib
 from typing import Dict, List, Optional
 
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, Response
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import HTMLResponse
     from pydantic import BaseModel, Field
@@ -159,10 +159,13 @@ class PlayerOut(BaseModel):
 _INDEX_HTML = (pathlib.Path(__file__).parent / "static" / "index.html")
 
 
+_NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
+
+
 @api.get("/", response_class=HTMLResponse)
-def index() -> str:
+def index() -> HTMLResponse:
     """Serve the built-in web UI from the same origin as the API."""
-    return _INDEX_HTML.read_text(encoding="utf-8")
+    return HTMLResponse(_INDEX_HTML.read_text(encoding="utf-8"), headers=_NO_CACHE)
 
 
 @api.get("/health")
@@ -171,12 +174,13 @@ def health() -> Dict[str, str]:
 
 
 @api.get("/players", response_model=List[PlayerOut])
-def players(q: str = "", limit: int = 200) -> List[dict]:
+def players(response: Response, q: str = "", limit: int = 200) -> List[dict]:
     """Current professional players with auto-fetched stats (search with ``q``).
 
     Feed a player's ``scoring_average`` and ``checkout_percentage`` straight into
     ``POST /simulate`` -- no manual stat entry needed.
     """
+    response.headers.update(_NO_CACHE)
     return find_players(query=q, limit=limit)
 
 
