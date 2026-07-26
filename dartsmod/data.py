@@ -110,16 +110,33 @@ def _fetch_json(rank_key: int, date_from: str, date_to: str, min_matches: int) -
     raise last_err  # type: ignore[misc]
 
 
+def _coerce_float(value: object, default: float) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
 def _normalize(player: dict) -> dict:
-    """Guarantee every record carries the full set of fields the API returns."""
-    scoring = player.get("scoring_average", 95.0)
+    """Return a record with the full field set and correct types.
+
+    Hardened against *null* or malformed values (not just missing keys): the live
+    feed occasionally has a player with a null country or a non-numeric stat, and
+    a single bad record must not 500 the whole ``/players`` response.
+    """
+    scoring = _coerce_float(player.get("scoring_average"), 95.0)
+    try:
+        key = int(player.get("key") or 0)
+    except (TypeError, ValueError):
+        key = 0
+    name = str(player.get("name") or "Unknown").strip() or "Unknown"
     return {
-        "key": player.get("key", 0),
-        "name": player.get("name", "Unknown"),
-        "country": player.get("country", ""),
+        "key": key,
+        "name": name,
+        "country": str(player.get("country") or ""),
         "scoring_average": scoring,
-        "three_dart_average": player.get("three_dart_average", scoring),
-        "checkout_percentage": player.get("checkout_percentage", _DEFAULT_CHECKOUT),
+        "three_dart_average": _coerce_float(player.get("three_dart_average"), scoring),
+        "checkout_percentage": _coerce_float(player.get("checkout_percentage"), _DEFAULT_CHECKOUT),
     }
 
 
@@ -133,8 +150,8 @@ def _fetch_stat_map(rank_key: int, date_from: str, date_to: str, min_matches: in
         if key is None or stat is None:
             continue
         result[key] = {
-            "name": row.get("player_name", "").strip(),
-            "country": row.get("country", ""),
+            "name": (row.get("player_name") or "").strip(),
+            "country": row.get("country") or "",
             "stat": stat,
         }
     return result

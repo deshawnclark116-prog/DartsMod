@@ -90,6 +90,35 @@ def test_fallback_roster_validates_against_response_model():
         PlayerOut(**data._normalize(p))  # must not raise
 
 
+def test_null_and_malformed_values_do_not_break(monkeypatch):
+    # The live feed sometimes has a player with a null country or a non-numeric
+    # stat. A single bad record must not 500 the /players response.
+    from dartsmod.api import PlayerOut
+    payloads = {
+        data.RANK_KEYS["average"]: {"data": [
+            {"player_key": 1, "player_name": "Good", "country": "ENG", "stat": "100.0"},
+            {"player_key": 2, "player_name": "NoCountry", "country": None, "stat": "96.0"},
+            {"player_key": 3, "player_name": None, "country": "NED", "stat": "95.0"},
+        ]},
+        data.RANK_KEYS["first9"]: {"data": []},
+        data.RANK_KEYS["checkout"]: {"data": []},
+    }
+    monkeypatch.setattr(data, "_fetch_json", lambda rank_key, *a, **k: payloads[rank_key])
+    data._cache["players"] = None
+    data._cache["ts"] = 0.0
+
+    players = data.get_players(force_refresh=True)
+    for p in players:
+        PlayerOut(**p)  # must not raise
+    assert any(p["country"] == "" for p in players)  # null country coerced
+
+
+def test_coerce_float():
+    assert data._coerce_float("42.5", 0.0) == 42.5
+    assert data._coerce_float(None, 9.0) == 9.0
+    assert data._coerce_float("n/a", 9.0) == 9.0
+
+
 def test_parse_stat():
     assert data._parse_stat("101.47") == 101.47
     assert data._parse_stat("43.5%") == 43.5
