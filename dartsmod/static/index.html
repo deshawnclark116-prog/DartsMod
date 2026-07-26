@@ -80,6 +80,7 @@
   .fixture .fx-meta { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
   .fixture .fx-players { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
   .fixture .fx-players .vsx { color: var(--muted); font-weight: 400; margin: 0 6px; }
+  .fixture .fx-fmt { font-size: 12px; color: var(--accent); margin-bottom: 10px; }
   .fx-btn { width: 100%; border: none; border-radius: 10px; padding: 11px; background: var(--accent); color: #06251a; font-weight: 800; font-size: 14px; cursor: pointer; }
   .divider { text-align: center; color: var(--muted); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; margin: 4px 0 14px; }
 </style>
@@ -226,16 +227,18 @@ async function loadFixtures() {
     } else {
       list.innerHTML = fixtures.map((m, i) => {
         const meta = [m.event, m.round, fmtDate(m.date)].filter(Boolean).join(" · ");
+        const fmtLabel = m.format ? m.format.label : "";
         return `<div class="fixture">
           <div class="fx-meta">${meta}</div>
           <div class="fx-players">${m.player_1.name}<span class="vsx">vs</span>${m.player_2.name}</div>
+          <div class="fx-fmt">${fmtLabel}</div>
           <button class="fx-btn" data-i="${i}">Predict this match</button>
         </div>`;
       }).join("");
       list.querySelectorAll(".fx-btn").forEach(b =>
         b.addEventListener("click", () => {
           const m = fixtures[b.dataset.i];
-          runSim(m.player_1, m.player_2);
+          runSim(m.player_1, m.player_2, m.format);
         }));
     }
     card.classList.remove("hidden");
@@ -246,7 +249,7 @@ async function loadFixtures() {
   }
 }
 
-async function runSim(p1, p2) {
+async function runSim(p1, p2, formatOverride) {
   const status = document.getElementById("predictStatus");
   const results = document.getElementById("results");
   if (!p1 || !p2) return;
@@ -259,10 +262,16 @@ async function runSim(p1, p2) {
   const body = {
     player_1: { name: p1.name, scoring_average: p1.scoring_average, checkout_percentage: p1.checkout_percentage },
     player_2: { name: p2.name, scoring_average: p2.scoring_average, checkout_percentage: p2.checkout_percentage },
-    format: document.getElementById("format").value,
     sims: parseInt(document.getElementById("sims").value) || 10000,
     over_under_line: parseFloat(document.getElementById("ouLine").value) || 10.5,
   };
+  if (formatOverride) {
+    // Auto-detected format for a real fixture.
+    body.legs_to_win_set = formatOverride.legs_to_win_set;
+    body.sets_to_win = formatOverride.sets_to_win;
+  } else {
+    body.format = document.getElementById("format").value;
+  }
 
   try {
     const r = await fetchWithRetry(API + "/simulate", {

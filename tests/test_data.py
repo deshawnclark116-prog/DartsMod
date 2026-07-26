@@ -140,6 +140,22 @@ def test_upcoming_matches_fallback_on_error(monkeypatch):
     assert data.get_upcoming_matches(force_refresh=True) == []
 
 
+def test_infer_match_format():
+    # World Matchplay is leg play, not sets.
+    f = data.infer_match_format("World Matchplay 2026", "Final")
+    assert f["sets_to_win"] == 1 and f["legs_to_win_set"] == 18
+    assert data.infer_match_format("World Matchplay 2026", "Quarter Final")["legs_to_win_set"] == 16
+    # World Championship is set play.
+    wc = data.infer_match_format("PDC World Championship 2026", "Final")
+    assert wc["sets_to_win"] == 7 and wc["legs_to_win_set"] == 3
+    # Women's Matchplay stays leg play (shorter), never sets.
+    w = data.infer_match_format("PDC Womens World Matchplay 2026", "Semi Final")
+    assert w["sets_to_win"] == 1
+    # Unknown event -> sensible leg-play default.
+    d = data.infer_match_format("Some Random Open", "Round 1")
+    assert d["sets_to_win"] == 1 and d["legs_to_win_set"] == 6
+
+
 def test_coerce_float():
     assert data._coerce_float("42.5", 0.0) == 42.5
     assert data._coerce_float(None, 9.0) == 9.0

@@ -51,6 +51,9 @@ def test_fixtures_endpoint(monkeypatch):
     assert body[0]["player_1"]["scoring_average"] == 109.3
     assert body[0]["player_2"]["known"] is False  # unknown -> defaults
     assert body[0]["event"] == "World Matchplay"
+    # Format is auto-inferred: Matchplay final is leg play (first to 18), not sets.
+    assert body[0]["format"]["sets_to_win"] == 1
+    assert body[0]["format"]["legs_to_win_set"] == 18
 
 
 def test_fixtures_empty(monkeypatch):

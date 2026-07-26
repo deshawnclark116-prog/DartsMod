@@ -235,6 +235,81 @@ def find_players(query: str = "", limit: int = 50) -> List[dict]:
     return players[:limit]
 
 
+# --- Format inference --------------------------------------------------------
+
+def infer_match_format(event_title: str, round_name: str) -> dict:
+    """Best-effort match format from the event and round.
+
+    The upcoming feed carries no format, so we map the major PDC events and their
+    rounds to the real leg/set structure. Returns ``{label, legs_to_win_set,
+    sets_to_win}``; leg-play formats have ``sets_to_win == 1``. Unknown events
+    default to a first-to-6 leg match. Heuristic and user-overridable.
+    """
+    e = (event_title or "").lower()
+    r = (round_name or "").lower()
+
+    def leg(n: int) -> dict:
+        return {"label": f"First to {n} legs", "legs_to_win_set": n, "sets_to_win": 1}
+
+    def setp(legs: int, sets: int) -> dict:
+        return {"label": f"First to {sets} sets (first to {legs} legs)",
+                "legs_to_win_set": legs, "sets_to_win": sets}
+
+    is_final = "final" in r and "semi" not in r and "quarter" not in r
+    is_semi = "semi" in r
+    is_quarter = "quarter" in r
+    women = "women" in e or "ladies" in e
+
+    # World Championship (PDC) -- set play.
+    if "world championship" in e and not women:
+        if is_final: return setp(3, 7)
+        if is_semi: return setp(3, 6)
+        if is_quarter: return setp(3, 5)
+        if "round 4" in r or "fourth" in r: return setp(3, 5)
+        if "round 3" in r or "third" in r: return setp(3, 4)
+        if "round 2" in r or "second" in r: return setp(3, 4)
+        return setp(3, 3)
+
+    # World Grand Prix -- set play, double-start.
+    if "grand prix" in e:
+        if is_final: return setp(3, 5)
+        if is_semi or is_quarter: return setp(3, 3)
+        if "round 2" in r or "second" in r: return setp(3, 3)
+        return setp(2, 2)
+
+    # World Matchplay -- leg play by round.
+    if "matchplay" in e and not women:
+        if is_final: return leg(18)
+        if is_semi: return leg(17)
+        if is_quarter: return leg(16)
+        if "round 2" in r or "second" in r or "16" in r: return leg(11)
+        return leg(10)
+    if "matchplay" in e and women:
+        return leg(8) if is_final else leg(6)
+
+    # Grand Slam of Darts -- leg play.
+    if "grand slam" in e:
+        if is_final: return leg(16)
+        if is_semi or is_quarter: return leg(16)
+        if "group" in r: return leg(5)
+        return leg(10)
+
+    # UK Open -- leg play.
+    if "uk open" in e:
+        if is_final or is_semi: return leg(11)
+        if is_quarter: return leg(10)
+        return leg(9)
+
+    # Premier League.
+    if "premier league" in e:
+        if is_final: return leg(11)
+        if is_semi: return leg(10)
+        return leg(6)
+
+    # Pro Tour / European Tour / Players Championship / anything else.
+    return leg(6)
+
+
 # --- Upcoming fixtures -------------------------------------------------------
 
 _UPCOMING_URL = "https://dartsorakel.com/api/match/upcoming-matches-datatable"

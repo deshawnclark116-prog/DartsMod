@@ -28,7 +28,7 @@ except ImportError as exc:  # pragma: no cover - import guard
         "The API requires FastAPI and Uvicorn. Install with: pip install -e '.[api]'"
     ) from exc
 
-from .data import find_players, get_players, get_upcoming_matches
+from .data import find_players, get_players, get_upcoming_matches, infer_match_format
 from .formats import PRESETS, Format, resolve_format
 from .match import LiveState
 from .player import DartsPlayer
@@ -192,10 +192,17 @@ class FixturePlayer(BaseModel):
     known: bool  # True if we have real stats; False = using defaults
 
 
+class FixtureFormat(BaseModel):
+    label: str
+    legs_to_win_set: int
+    sets_to_win: int
+
+
 class FixtureOut(BaseModel):
     event: str
     round: str
     date: str
+    format: FixtureFormat
     player_1: FixturePlayer
     player_2: FixturePlayer
 
@@ -221,6 +228,7 @@ def fixtures(response: Response) -> List[dict]:
     return [
         {
             "event": m["event"], "round": m["round"], "date": m["date"],
+            "format": infer_match_format(m["event"], m["round"]),
             "player_1": to_player(m["p1_key"], m["p1_name"]),
             "player_2": to_player(m["p2_key"], m["p2_name"]),
         }
