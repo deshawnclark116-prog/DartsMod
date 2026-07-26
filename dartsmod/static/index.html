@@ -154,6 +154,17 @@ let players = [];
 
 function fmtPct(x) { return (x * 100).toFixed(1) + "%"; }
 
+function fmtDate(s) {
+  if (!s) return "";
+  // Feed times are UTC ("YYYY-MM-DD HH:MM:SS"). Normalize to a UTC ISO string,
+  // then render in the viewer's local timezone.
+  let iso = s.includes("T") ? s : s.replace(" ", "T");
+  if (!/[zZ]|[+\-]\d\d:?\d\d$/.test(iso)) iso += "Z";
+  const d = new Date(iso);
+  if (isNaN(d)) return s;
+  return d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" });
+}
+
 async function fetchWithRetry(url, options, attempts = 4, timeoutMs = 90000) {
   let lastErr;
   for (let i = 1; i <= attempts; i++) {
@@ -214,7 +225,7 @@ async function loadFixtures() {
       list.innerHTML = `<div style="color:var(--muted);font-size:14px">No upcoming matches published right now — build your own below.</div>`;
     } else {
       list.innerHTML = fixtures.map((m, i) => {
-        const meta = [m.event, m.round, m.date ? new Date(m.date).toLocaleString() : ""].filter(Boolean).join(" · ");
+        const meta = [m.event, m.round, fmtDate(m.date)].filter(Boolean).join(" · ");
         return `<div class="fixture">
           <div class="fx-meta">${meta}</div>
           <div class="fx-players">${m.player_1.name}<span class="vsx">vs</span>${m.player_2.name}</div>
