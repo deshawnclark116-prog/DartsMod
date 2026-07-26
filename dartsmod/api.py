@@ -26,6 +26,7 @@ except ImportError as exc:  # pragma: no cover - import guard
         "The API requires FastAPI and Uvicorn. Install with: pip install -e '.[api]'"
     ) from exc
 
+from .data import find_players, get_players
 from .formats import PRESETS, Format, resolve_format
 from .match import LiveState
 from .player import DartsPlayer
@@ -144,9 +145,28 @@ class SimulateResponse(BaseModel):
 
 # --- Endpoints ---------------------------------------------------------------
 
+class PlayerOut(BaseModel):
+    key: int
+    name: str
+    country: str
+    scoring_average: float
+    three_dart_average: float
+    checkout_percentage: float
+
+
 @api.get("/health")
 def health() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+@api.get("/players", response_model=List[PlayerOut])
+def players(q: str = "", limit: int = 200) -> List[dict]:
+    """Current professional players with auto-fetched stats (search with ``q``).
+
+    Feed a player's ``scoring_average`` and ``checkout_percentage`` straight into
+    ``POST /simulate`` -- no manual stat entry needed.
+    """
+    return find_players(query=q, limit=limit)
 
 
 @api.get("/formats")

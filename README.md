@@ -89,8 +89,15 @@ uvicorn dartsmod.api:api --reload --port 8000
 | Method & path   | Purpose                                                   |
 |-----------------|-----------------------------------------------------------|
 | `GET /health`   | Liveness check                                            |
+| `GET /players`  | Current pro players with auto-fetched stats (search `?q=`) |
 | `GET /formats`  | List format presets (+ dynamic `bestofN` / `firsttoN`)    |
 | `POST /simulate`| Run a simulation, return win probs, scorelines, props     |
+
+`GET /players` powers a "pick two players" frontend: it returns current
+professionals with their live scoring average and checkout %, pulled from a public
+stats feed (DartsOrakel) and cached, so users never type statistics by hand. The
+pipeline lives in `dartsmod/data.py` and degrades gracefully (last-good cache, then
+a built-in roster) if the source is unreachable.
 
 Example call:
 

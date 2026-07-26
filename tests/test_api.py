@@ -21,6 +21,20 @@ def test_formats_lists_presets():
     assert "premier_league" in body["presets"]
 
 
+def test_players_endpoint(monkeypatch):
+    import dartsmod.api as api_mod
+    roster = [
+        {"key": 1, "name": "Luke Littler", "country": "ENG",
+         "scoring_average": 105.0, "three_dart_average": 101.0, "checkout_percentage": 43.0},
+    ]
+    monkeypatch.setattr(api_mod, "find_players", lambda query="", limit=200: roster)
+    resp = client.get("/players?q=luke")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body[0]["name"] == "Luke Littler"
+    assert body[0]["checkout_percentage"] == 43.0
+
+
 def test_simulate_basic():
     resp = client.post("/simulate", json={
         "player_1": {"name": "A", "scoring_average": 104, "double_prob": 0.44},
